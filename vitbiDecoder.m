@@ -1,7 +1,11 @@
 function [ decoded ] = vitbiDecoder( code,trel,tblen )
 %The simplest implementation of viterbi decoder
-%Warning: log2(trel.numStates)/K should be a integer, if it's a fraction,
-%more process is needed in initialization.
+%This function can be optimazed in two aspect.
+%   Using C program
+%   Adjust algorithm by the structure of trellis
+%The BER is lower of this function than vitdec in most cases. The reasons may includes
+%   We choose the maximum metric at last.
+%   Traceback depth largest.
 K = log2(trel.numInputSymbols);
 N = log2(trel.numOutputSymbols);
 codeReshape = reshape(code,N,[])';
@@ -27,10 +31,42 @@ for m = 1:min(log2(trel.numStates)/K,size(codeReshape,1))
     
 end
 
-[~,initSort] = sort(savedStates(:,m+1));
-savedStates = savedStates(initSort,:);
-decoded = decoded(initSort,:);
-metric = metric(initSort);
+if(ceil(log2(trel.numStates)/K)==log2(trel.numStates)/K)
+    [~,initSort] = sort(savedStates(:,m+1));
+    savedStates = savedStates(initSort,:);
+    decoded = decoded(initSort,:);
+    metric = metric(initSort);
+else
+    savedStatesTemp = savedStates;
+    metricFlag = zeros(size(metric));
+    metricTemp = metricFlag;
+    decodedTemp = decoded;
+    for n = 1:K^(N*floor((log2(trel.numStates)/K)))
+        nextState = trel.nextStates(1+savedStates(n,floor(log2(trel.numStates)/K)),:);
+        outputs =  trel.outputs(1+savedStates(n,floor(log2(trel.numStates)/K)),:);
+        outputs = dec2bin(outputs) - 48;
+        metric_add = repmat(codeReshape(floor(log2(trel.numStates)/K)...
+            ,:),size(outputs,1),1).*(1-2*outputs);
+        for k = 1:length(nextState)
+            if(metricFlag(nextState(k)+1)==0)
+                savedStatesTemp(nextState(k)+1,:) = savedStates(n,:);
+                metricTemp(nextState(k)+1) = metric(n) + metric_add(k);
+                decodedTemp(nextState(k)+1,:) = decoded(n,:);
+                decodedTemp(nextState(k)+1,floor(log2(trel.numStates)/K)+1) = k;
+                metricFlag(nextState(k)+1) = 1;
+            elseif(metric(n) + metric_add(k)> metricTemp(nextState(k)+1))
+                savedStatesTemp(nextState(k)+1,:) = savedStates(n,:);
+                metricTemp(nextState(k)+1) = metric(n) + metric_add(k);
+                decodedTemp(nextState(k)+1,:) = decoded(n,:);
+                decodedTemp(nextState(k)+1,floor(log2(trel.numStates)/K)+1) = k;
+            end
+        end
+    end
+    savedStates = savedStatesTemp;
+    metric = metricTemp;
+    decoded = decodedTemp;
+    savedStates(:,floor(log2(trel.numStates)/K)+1) = 0:trel.numStates-1;
+end
 
 % next states , output and metric for every possible inputs
 % the order of current states is 0,1,2,...
@@ -44,7 +80,7 @@ inputs = inputs(stateSort);
 outputs = dec2bin(outputs) - 48;
 
 % survival path, include every states.
-for m = log2(trel.numStates)/K+1: size(codeReshape,1)
+for m = ceil(log2(trel.numStates)/K)+1: size(codeReshape,1)
     % In AWGN channel,LLR = C1(r*v) + C2.
     metric_add = repmat(codeReshape(m,:),size(outputs,1),1).*(1-2*outputs);
     metric_add = sum(metric_add,2);
@@ -61,6 +97,7 @@ for m = log2(trel.numStates)/K+1: size(codeReshape,1)
     decoded(:,m) = inputs(survior);
     metric = metric_update;
 end
-decoded = [zeros(1,tblen) decoded(1,1:end-tblen)];
+[~,maxMetricIndex] = max(metric);
+decoded = [zeros(1,tblen) decoded(maxMetricIndex,1:end-tblen)];
 end
 
