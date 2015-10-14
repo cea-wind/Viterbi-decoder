@@ -38,7 +38,7 @@ for nEbN0 = 1:length(EbN0_dB)
         SNR_dB = EbN0_dB((nEbN0)) + 10*log10(2)+10*log10(RATE);
         SNR = 10^(SNR_dB/10);
         noise = randn(1,length(transmitSignal));
-        noise = noise/sqrt(SNR);     
+        noise = noise/sqrt(SNR);
         receiveSignal = transmitSignal + noise;
 
         %%
